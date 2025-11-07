@@ -1,0 +1,75 @@
+version: '3.8'
+
+services:
+  # Redis服务
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  # Celery Worker服务
+  celery-worker:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    command: celery -A src.settings.celery_config.celery_app worker --loglevel=info
+    volumes:
+      - ../src:/app/src
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    depends_on:
+      - redis
+
+  # Celery Beat服务（定时任务）
+  celery-beat:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    command: celery -A src.settings.celery_config.celery_app beat --loglevel=info
+    volumes:
+      - ../src:/app/src
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    depends_on:
+      - redis
+
+  # FastAPI服务
+  fastapi:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    command: uvicorn src.main.api:app --host 0.0.0.0 --port 8000 --reload
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../src:/app/src
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    depends_on:
+      - redis
+      - celery-worker
+
+  # Flower监控服务
+  flower:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    command: celery flower --address=0.0.0.0 --port=5555 --basic_auth=admin:admin123
+    ports:
+      - "5555:5555"
+    volumes:
+      - ../src:/app/src
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    depends_on:
+      - redis
+      - celery-worker
+
+volumes:
+  redis_data:
