@@ -7,16 +7,25 @@
 ```
 celery_project_structure/
 ├── deploy/                 # Docker部署文件
-│   ├── Dockerfile          # 容器镜像定义
+│   ├── BaseDockerfile      # 基础容器镜像定义
+│   ├── Dockerfile          # 应用容器镜像定义
 │   └── docker-compose.yaml # 多服务编排
 ├── src/                    # 源代码目录
 │   ├── main/               # 主工程代码
-│   │   ├── __init__.py
-│   │   ├── api.py          # FastAPI服务
-│   │   └── tasks.py        # Celery任务定义
-│   └── settings/           # 配置管理
-│       ├── celery_config/   # Celery配置
-│       └── config.py        # 应用配置
+│   │   └── tasks/          # Celery任务模块
+│   │       ├── __init__.py
+│   │       ├── api.py      # FastAPI服务
+│   │       ├── craw_chone_thread.py  # 船讯网数据采集任务
+│   │       └── test_tasks.py         # 测试任务
+│   ├── settings/           # 配置管理
+│   │   ├── celery_config/   # Celery配置
+│   │   │   └── celery_app.py
+│   │   └── config.py        # 应用配置
+│   └── utils/              # 工具模块
+│       ├── ai_tools.py     # AI工具函数
+│       ├── chromium_manager.py  # 浏览器管理
+│       ├── craw_tools.py   # 爬虫工具
+│       └── db_tools.py     # 数据库工具
 ├── requirements.txt        # Python依赖
 ├── .env.example           # 环境变量示例
 ├── start_flower.py        # Flower监控服务启动脚本
@@ -86,115 +95,164 @@ uvicorn src.main.api:app --host 0.0.0.0 --port 8000 --reload
 celery flower --address=0.0.0.0 --port=5555 --basic_auth=admin:admin123
 ```
 
-#### 方式三：使用Windows批处理脚本
-
-```bash
-# 运行启动脚本（包含所有服务）
-start_all_services.bat
-```
-
 ### 4. 访问服务
 
 - **FastAPI服务**: http://localhost:8000
 - **API文档**: http://localhost:8000/docs
 - **Flower监控**: http://localhost:5555 (用户名: admin, 密码: admin123)
-- **健康检查**: http://localhost:8000/health
 
 ## API使用示例
 
-### 启动数据采集任务
-
+### 1. 启动测试任务
 ```bash
-curl -X POST "http://localhost:8000/tasks/collect-data" \
+curl -X POST "http://localhost:8000/api/tasks/hello" \
   -H "Content-Type: application/json" \
-  -d '{"url": "https://httpbin.org/json", "data_type": "api"}'
+  -d '{
+    "message": "Hello Celery",
+    "delay": 5
+  }'
 ```
 
-### 启动数据处理任务
-
+### 2. 启动船讯网数据采集任务
 ```bash
-curl -X POST "http://localhost:8000/tasks/process-data" \
-  -H "Content-Type: application/json" \
-  -d '{"raw_data": {"sample": "data"}, "processor_type": "clean"}'
+curl -X POST "http://localhost:8000/api/tasks/craw-chone"
 ```
 
-### 启动数据采集管道
 
+### 3. 获取任务结果
 ```bash
-curl -X POST "http://localhost:8000/tasks/pipeline" \
-  -H "Content-Type: application/json" \
-  -d '{"url": "https://httpbin.org/json", "data_type": "api"}'
-```
-
-### 查询任务状态
-
-```bash
-curl "http://localhost:8000/tasks/{task_id}"
+curl "http://localhost:8000/api/tasks/result?task_id=task-uuid-here"
 ```
 
 ## 任务类型
 
-### 1. 数据采集任务 (`collect_data_task`)
-- 支持网页数据采集（web）
-- 支持API数据采集（api）
-- 自动重试机制（最多3次）
-- 超时控制（30秒）
+### 1. 船讯网数据采集任务 (`time_task`)
+- 定时采集船讯网新闻数据
+- 支持多页面数据解析
+- 自动数据入库
+- 错误重试和超时控制
 
-### 2. 数据处理任务 (`process_data_task`)
-- 数据清洗（clean）
-- 数据转换（transform）
-- 可扩展的处理类型
-
-### 3. 数据清理任务 (`cleanup_old_data_task`)
-- 定时清理旧数据
-- 可配置保留天数
-
-### 4. 数据采集管道 (`data_collection_pipeline`)
-- 组合多个任务的管道
-- 顺序执行：采集 → 处理
-- 错误处理和状态跟踪
+### 2. 测试任务 (`hello_task`)
+- 简单的测试任务
+- 支持自定义消息和延迟
+- 用于验证Celery任务系统
 
 ## 定时任务配置
 
 框架预配置了以下定时任务：
 
-- **每小时数据采集**: 整点执行数据采集
-- **每日数据清理**: 凌晨2点清理旧数据
+- **船讯网数据采集**: 每分钟执行船讯网新闻数据采集
 
-配置位置：`celery/celery_app.py` 中的 `beat_schedule`
+配置位置：`src/settings/celery_config/celery_app.py` 中的 `beat_schedule`
+
+当前启用的定时任务：
+```python
+'craw-chone-thread-daily': {
+    'task': 'src.main.tasks.craw_chone_thread.time_task',
+    'schedule': crontab(minute='*/1'),  # 每1分钟执行一次
+    'args': ()
+}
+```
 
 ## 自定义开发
 
-### 添加新的数据采集任务
+### 任务模块结构
 
-1. 在 `src/main/tasks.py` 中添加新的任务函数：
+项目采用模块化任务结构，所有任务位于 `src/main/tasks/` 目录下：
+
+```
+src/main/tasks/
+├── __init__.py      # 任务注册文件
+├── api.py           # FastAPI服务
+├── craw_chone_thread.py  # 船讯网数据采集任务
+└── test_tasks.py    # 测试任务
+```
+
+### 任务注册机制
+
+为确保Celery能正确发现和注册任务，需要在 `src/main/tasks/__init__.py` 文件中显式导入所有任务：
 
 ```python
+# src/main/tasks/__init__.py
+from .craw_chone_thread import time_task
+from .test_tasks import hello_task, add_task, multiply_task
+
+# 导出所有任务，确保Celery自动发现机制正常工作
+__all__ = [
+    'time_task',
+    'hello_task', 
+    'add_task',
+    'multiply_task'
+]
+```
+
+### 添加新的任务
+
+1. **创建新的任务文件**：在 `src/main/tasks/` 目录下创建新的Python文件
+
+```python
+# src/main/tasks/custom_task.py
+from celery import shared_task
+
 @shared_task
 def custom_collection_task(parameters):
     # 实现自定义采集逻辑
-    pass
+    return {"status": "success", "data": "custom data"}
 ```
 
-2. 在 `src/main/api.py` 中添加对应的API接口
+2. **在 `__init__.py` 中注册新任务**：
 
-### 修改定时任务
+```python
+# 更新 src/main/tasks/__init__.py
+from .custom_task import custom_collection_task
 
-编辑 `celery/celery_app.py` 中的 `beat_schedule` 配置：
+# 添加到 __all__ 列表
+__all__ = [
+    'time_task',
+    'hello_task',
+    'add_task',
+    'multiply_task',
+    'custom_collection_task'  # 新增任务
+]
+```
+
+3. **在API中添加接口**（可选）：
+
+```python
+# 在 src/main/tasks/api.py 中添加API接口
+@router.post("/custom-task")
+async def start_custom_task():
+    task = custom_collection_task.delay({})
+    return {"task_id": task.id, "status": "started"}
+```
+
+### 修改或新增定时任务
+
+编辑 `src/settings/celery_config/celery_app.py` 中的 `beat_schedule` 配置：
 
 ```python
 beat_schedule={
     'custom-task': {
-        'task': 'src.main.tasks.custom_task',
+        'task': 'src.main.tasks.custom_task.custom_collection_task',
         'schedule': crontab(minute=0, hour=0),  # 每天午夜执行
         'args': ()
     }
 }
 ```
 
-### 添加新的数据处理器
+### 验证任务注册
 
-在 `src/main/tasks.py` 的 `process_data_task` 函数中添加新的处理逻辑。
+使用以下脚本验证任务是否正确注册：
+
+```python
+from src.settings.celery_config.celery_app import celery_app
+
+# 检查已注册的任务
+print("已注册的任务:")
+for task_name in celery_app.tasks:
+    if 'src.main.tasks' in task_name:
+        print(f"  - {task_name}")
+```
 
 ## 部署说明
 
@@ -205,6 +263,8 @@ beat_schedule={
 ```bash
 # 构建和启动所有服务
 cd deploy
+docker build -f docker/BaseDockerfile -t port-congestion-api:base .
+
 docker-compose up -d
 
 # 查看服务状态

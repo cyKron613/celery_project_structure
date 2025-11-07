@@ -1,5 +1,5 @@
 # 基础镜像
-FROM python:3.11-slim
+FROM craw_service:base
 
 # 设置工作目录
 WORKDIR /app
@@ -12,7 +12,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 
 # 复制源代码
-COPY src/ ./src/
+COPY . /app/
 
 # 设置环境变量 - 确保Python路径包含项目根目录
 ENV PYTHONPATH=/app

@@ -1,0 +1,73 @@
+# 指定基础镜像 不要指定latest 会导致每次构建都会拉取最新的镜像 容易出现冲突
+FROM python:3.9
+
+# 设置作者与描述
+LABEL maintainer="cy.kron@foxmail.com"
+LABEL description="craw service."
+
+# 设置环境变量
+ENV PYTHONUNBUFFERED 1
+
+# 安装Chrome
+# Update package manager and install required packages
+RUN apt-get update -yqq && \
+    apt-get install -yqq wget ca-certificates --no-install-recommends && \
+    rm -rf /var/lib/apt/lists/*
+
+# Download Chrome dependencies
+RUN apt-get update -yqq && \
+    apt-get install -yqq \
+    fonts-liberation \
+    libasound2 \
+    libatk-bridge2.0-0 \
+    libatk1.0-0 \
+    libatspi2.0-0 \
+    libcups2 \
+    libdbus-1-3 \
+    libdrm2 \
+    libgbm1 \
+    libgtk-3-0 \
+    libnspr4 \
+    libnss3 \
+    libu2f-udev \
+    libvulkan1 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxfixes3 \
+    libxkbcommon0 \
+    libxrandr2 \
+    xdg-utils --no-install-recommends && \
+    rm -rf /var/lib/apt/lists/*
+
+# Download and install Chrome
+RUN wget -q -O /chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb && \
+    dpkg -i /chrome.deb && \
+    rm /chrome.deb
+
+
+
+# 安装依赖 - 与requirements.txt保持一致
+RUN pip install celery==5.3.4 -i https://mirrors.aliyun.com/pypi/simple/
+RUN pip install redis==5.0.1 -i https://mirrors.aliyun.com/pypi/simple/
+RUN pip install fastapi==0.110.0 -i https://mirrors.aliyun.com/pypi/simple/
+RUN pip install uvicorn==0.28.0 -i https://mirrors.aliyun.com/pypi/simple/
+RUN pip install requests==2.31.0 -i https://mirrors.aliyun.com/pypi/simple/
+RUN pip install pydantic==2.6.4 -i https://mirrors.aliyun.com/pypi/simple/
+RUN pip install pydantic-settings==2.1.0 -i https://mirrors.aliyun.com/pypi/simple/
+RUN pip install python-dotenv==1.0.0 -i https://mirrors.aliyun.com/pypi/simple/
+RUN pip install flower==2.0.1 -i https://mirrors.aliyun.com/pypi/simple/
+RUN pip install beautifulsoup4==4.12.2 -i https://mirrors.aliyun.com/pypi/simple/
+RUN pip install lxml==4.9.3 -i https://mirrors.aliyun.com/pypi/simple/
+RUN pip install pandas==2.1.3 -i https://mirrors.aliyun.com/pypi/simple/
+RUN pip install sqlalchemy==2.0.28 -i https://mirrors.aliyun.com/pypi/simple/
+RUN pip install psycopg2-binary==2.9.9 -i https://mirrors.aliyun.com/pypi/simple/
+RUN pip install drissionpage==4.0.4.21 -i https://mirrors.aliyun.com/pypi/simple/
+RUN pip install openai -i https://mirrors.aliyun.com/pypi/simple/
+RUN pip install fake_useragent==1.5.1 -i https://mirrors.aliyun.com/pypi/simple/
+RUN pip install python-decouple==3.8 -i https://mirrors.aliyun.com/pypi/simple/
+RUN pip install loguru==0.7.2 -i https://mirrors.aliyun.com/pypi/simple/
+
+RUN apt-get update && apt-get install -y vim
+
+# sudo docker build -f BaseDockerfile -t craw_service:base .
+
