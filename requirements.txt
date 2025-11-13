@@ -17,3 +17,4 @@ openai
 fake_useragent==1.5.1
 python-decouple==3.8
 loguru==0.7.2
+pymysql==1.1.2

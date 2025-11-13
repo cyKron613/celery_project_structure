@@ -1,13 +1,135 @@
+import pathlib
+import sys
+PROJECT_ROOT = pathlib.Path(__file__).parent.parent.parent.resolve()
+sys.path.append(str(PROJECT_ROOT))
+
 from loguru import logger
 from src.utils.chromium_manager import ChromiumOptionsManager
+from src.utils.db_tools import std_db
+from src.settings.config import settings
+
 from concurrent.futures import ThreadPoolExecutor
 from fake_useragent import UserAgent
 from DrissionPage import ChromiumPage
 from lxml import etree
+from sqlalchemy import text
+
+# 导入PostgreSQL异常类
+try:
+    import psycopg2
+    from psycopg2 import errors
+    HAS_PSYCOPG2 = True
+except ImportError:
+    HAS_PSYCOPG2 = False
 
 import time
-
 ua = UserAgent()
+
+table_name = settings.CRAWL_TABLE_NAME
+
+def update_no_translate_context(table_name, abstract_cn, abstract,
+                                detail_title_cn, detail_contents_cn,
+                                detail_contents, detail_title,
+                                article_id,
+                                keyword1, keyword2, keyword3, is_translated):
+    # 创建一个同步会话对象
+    try:
+        with std_db._scoped_session() as session:
+            # 使用参数化查询来避免 SQL 注入
+            exe_sql = text(f"""
+                UPDATE {table_name}
+                SET
+                    abstract_cn = :abstract_cn,
+                    abstract = :abstract,
+                    detail_title_cn = :detail_title_cn,
+                    detail_contents_cn = :detail_contents_cn,
+                    detail_contents = :detail_contents,
+                    detail_title = :detail_title,
+                    is_translated = :is_translated,
+                    keyword1 = :keyword1,
+                    keyword2 = :keyword2,
+                    keyword3 = :keyword3
+                WHERE
+                    article_id = :article_id
+            """)
+
+            session.execute(exe_sql, {
+                'abstract_cn': abstract_cn,
+                'abstract': abstract,
+                'detail_title_cn': detail_title_cn,
+                'detail_contents_cn': detail_contents_cn,
+                'detail_contents': detail_contents,
+                'detail_title': detail_title,
+                'article_id': article_id,
+                'keyword1': keyword1,
+                'keyword2': keyword2,
+                'keyword3': keyword3,
+                'is_translated': is_translated
+            })
+            logger.info(f"已更新id： {article_id}")
+            session.commit()
+
+    except Exception as e:
+        logger.error(f"{e}, 在更新未翻译上下文时发生错误")
+        raise
+
+def delete_high_risk_data(table_name, article_id):
+    """
+    删除指定article_id的数据行。
+    """
+    # 创建一个同步会话对象
+    try:
+        with std_db._scoped_session() as session:
+            # 使用参数化查询来避免SQL注入
+            exe_sql = text(f"""
+                DELETE FROM {table_name}
+                WHERE
+                    article_id = :article_id
+            """)
+
+            session.execute(exe_sql, {'article_id': article_id})
+            logger.info(f"已删除高风险数据： {article_id}")
+            session.commit()
+
+    except Exception as e:
+        logger.error(f"{e}, 在删除数据时发生错误")
+        raise
+
+def find_translated(table_name):
+    try:
+        with std_db._scoped_session() as session:
+            # 查询未翻译的条目
+            # 英文条目
+            exe_sql = f"""
+                SELECT detail_title, detail_contents, article_id, detail_url
+                FROM {table_name}
+                WHERE is_translated = 'no'
+                AND detail_title IS NOT NULL;
+            """
+            result = session.execute(text(exe_sql))
+            rows = result.fetchall()
+
+            translate_result = [{"detail_title": row[0], "detail_contents": row[1], "article_id": row[2], "detail_url": row[3]}
+             for row in rows]
+
+            # 中文条目
+            exe_sql2 = f"""
+                SELECT detail_title_cn, detail_contents_cn, article_id, detail_url
+                FROM {table_name}
+                WHERE is_translated = 'no'
+                AND detail_title_cn IS NOT NULL;
+            """
+            result = session.execute(text(exe_sql2))
+            rows = result.fetchall()
+
+            translate_result_cn = [{"detail_title_cn": row[0], "detail_contents_cn": row[1], "article_id": row[2], "detail_url": row[3]}
+                                   for row in rows]
+
+            translate_result.extend(translate_result_cn)
+            return translate_result
+    except Exception as e:
+        logger.error(f"{e}, {e.__traceback__.tb_lineno}")
+        raise
 
 def get_primary_key(web_name, res_dict):
     try:
@@ -23,7 +145,6 @@ def get_primary_key(web_name, res_dict):
         except Exception as e:
             logger.error(e)
             return None
-
 
 def get_with_timeout(url, need_click, chromium_options_manager):
     """
@@ -159,3 +280,54 @@ def fetch_and_parse(url: str, need_click: bool = False, max_retries: int = 2, re
                 time.sleep(delay)
                 continue
             raise TimeoutError(f"所有{max_retries}次尝试均失败: {url}")
+
+def insert_into_table(data: list[dict] = None):
+    """
+    插入数据到指定表
+    
+    Args:
+        table_name: 表名
+        data: 要插入的数据字典列表
+    """
+    session = None
+    try:
+        session = std_db._scoped_session()
+        successful_inserts = 0
+        
+        for item in data:
+            try:
+                # 先判断是否存在重复键值
+                stmt = text(f"SELECT 1 FROM {table_name} WHERE article_id = :article_id")
+                result = session.execute(stmt, {'article_id': item['article_id']}).fetchone()
+                if result:
+                    logger.warning(f"数据已存在，跳过插入（重复键值）: {item.get('article_id', 'Unknown')}")
+                    continue
+
+                stmt = text(f"INSERT INTO {table_name} ({', '.join(item.keys())}) VALUES ({', '.join([':' + k for k in item.keys()])})")
+                session.execute(stmt, item)
+                successful_inserts += 1
+                
+            except Exception as e:
+                logger.error(f"插入数据 {item} 到表 {table_name} 失败: {e}")
+                # 对于其他异常，回滚并重新抛出
+                session.rollback()
+                raise
+    
+        # 只有所有插入都成功或跳过重复项后才提交
+        session.commit()
+        logger.info(f"成功插入 {successful_inserts} 条数据到表 {table_name}")
+        
+    except Exception as e:
+        if session:
+            session.rollback()
+        logger.error(f"插入数据到表 {table_name} 失败: {e}")
+        raise
+    finally:
+        if session:
+            session.close()
+
+
+
+if __name__ == '__main__':
+    translate_result = find_translated('sdc_data.ex_shipping_information')
+    print(translate_result)

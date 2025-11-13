@@ -42,13 +42,27 @@ celery_app.conf.update(
     timezone='Asia/Shanghai',
     enable_utc=True,
     
-    # 定时任务配置
+    # 队列配置
+    task_routes = {
+        'src.main.tasks.time_tasks.craw_aibase_thread.time_task': {'queue': 'crawler_queue'},
+        'src.main.tasks.time_tasks.translate_tasks.time_task': {'queue': 'default'}
+    },
+    task_default_queue = 'default',
+    task_default_exchange = 'default',
+    task_default_routing_key = 'default',
+    
+    # 定时任务配置 - 使用标准模块路径
     beat_schedule={
-        # 'craw-chone-thread-daily': {
-        #     'task': 'src.main.tasks.craw_chone_thread.time_task',
-        #     'schedule': crontab(minute='*/1'),  # 每1分钟执行一次
-        #     'args': ()
-        # },
+        'translate-thread-30s': {
+            'task': 'src.main.tasks.time_tasks.translate_tasks.time_task',
+            'schedule': timedelta(seconds=30),  # 每30秒执行一次
+            'args': ()
+        },
+        'craw-aibase-thread-120s': {
+            'task': 'src.main.tasks.time_tasks.craw_aibase_thread.time_task',
+            'schedule': timedelta(seconds=120),  # 每120秒执行一次
+            'args': ()
+        },
     }
 )
 

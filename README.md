@@ -1,6 +1,6 @@
-# Celery数据采集框架
+# Celery分布式任务框架
 
-一个基于Celery的可复用数据采集框架，支持快速搭建数据采集、处理和管理的分布式系统。
+一个基于Celery的现代化分布式任务处理框架，支持快速搭建数据采集、处理和管理的分布式系统。提供完整的Docker容器化部署方案和Kubernetes支持。
 
 ## 项目结构
 
@@ -10,39 +10,58 @@ celery_project_structure/
 │   ├── BaseDockerfile      # 基础容器镜像定义
 │   ├── Dockerfile          # 应用容器镜像定义
 │   └── docker-compose.yaml # 多服务编排
+├── k8s/                    # Kubernetes部署配置
+│   ├── deploy.sh           # 部署脚本
+│   └── deployment.yaml     # K8s部署文件
 ├── src/                    # 源代码目录
 │   ├── main/               # 主工程代码
 │   │   └── tasks/          # Celery任务模块
-│   │       ├── __init__.py
-│   │       ├── api.py      # FastAPI服务
-│   │       ├── craw_chone_thread.py  # 船讯网数据采集任务
-│   │       └── test_tasks.py         # 测试任务
 │   ├── settings/           # 配置管理
 │   │   ├── celery_config/   # Celery配置
-│   │   │   └── celery_app.py
 │   │   └── config.py        # 应用配置
 │   └── utils/              # 工具模块
 │       ├── ai_tools.py     # AI工具函数
 │       ├── chromium_manager.py  # 浏览器管理
 │       ├── craw_tools.py   # 爬虫工具
-│       └── db_tools.py     # 数据库工具
+│       ├── db_tools.py     # 数据库工具
+│       └── wechat_crawler_demo.py  # 微信爬虫示例
+├── examples/               # 示例代码
+│   └── database_example.py # 数据库操作示例
+├── sql/                    # SQL脚本
+│   └── ex_shipping_information.sql  # 示例SQL
 ├── requirements.txt        # Python依赖
 ├── .env.example           # 环境变量示例
 ├── start_flower.py        # Flower监控服务启动脚本
+├── check_env.py           # 环境检查脚本
+├── test-deploy.sh         # 测试部署脚本
 └── README.md              # 项目文档
 ```
 
 ## 功能特性
 
+### 核心功能
 - ✅ 基于Celery的分布式任务队列
+- ✅ 多队列任务路由配置（默认队列、爬虫队列）
 - ✅ FastAPI RESTful API接口
 - ✅ Docker容器化部署
+- ✅ Kubernetes集群部署支持
 - ✅ 定时任务调度（Celery Beat）
 - ✅ Flower实时监控和任务管理
-- ✅ 数据采集、处理、清理任务
 - ✅ 任务状态查询和管理
-- ✅ 可配置的数据源和处理流程
 - ✅ 错误重试和日志记录
+
+### 数据采集能力
+- ✅ 船讯网数据采集任务
+- ✅ 微信爬虫示例
+- ✅ 浏览器自动化（Chromium）
+- ✅ AI工具集成
+- ✅ 数据库操作工具
+
+### 开发工具
+- ✅ 环境检查脚本
+- ✅ 测试部署脚本
+- ✅ 示例代码和SQL脚本
+- ✅ 自动任务注册机制
 
 ## 快速开始
 
@@ -56,21 +75,19 @@ cd celery_project_structure
 # 复制环境配置
 cp .env.example .env
 
+# 检查环境依赖
+python check_env.py
+```
 # 安装依赖
-pip install -r requirements.txt
-```
-
-### 2. 启动Redis（任务队列）
-
 ```bash
-# 使用Docker启动Redis
-docker run -d -p 6379:6379 redis:7-alpine
+pip install -r requirements.txt
 
-# 或者使用docker-compose启动所有服务
-docker-compose -f deploy/docker-compose.yaml up -d
+# 或者安装中间镜像
+docker build -f deploy/BaseDockerfile -t craw_service:base .
 ```
 
-### 3. 启动服务
+
+### 2. 启动服务
 
 #### 方式一：使用Docker Compose（推荐）
 
@@ -79,11 +96,21 @@ cd deploy
 docker-compose up -d
 ```
 
-#### 方式二：手动启动各服务
+#### 方式二：使用测试部署脚本
 
 ```bash
-# 启动Celery Worker（数据处理）
-celery -A src.settings.celery_config.celery_app worker --loglevel=info
+# 运行测试部署脚本
+./test-deploy.sh
+```
+
+#### 方式三：手动启动各服务
+
+```bash
+# 启动默认队列Worker（处理普通任务）
+celery -A src.settings.celery_config.celery_app worker --loglevel=info -Q default
+
+# 启动爬虫队列Worker（处理数据采集任务）
+celery -A src.settings.celery_config.celery_app worker --loglevel=info -Q crawler_queue
 
 # 启动Celery Beat（定时任务）
 celery -A src.settings.celery_config.celery_app beat --loglevel=info
@@ -95,61 +122,120 @@ uvicorn src.main.api:app --host 0.0.0.0 --port 8000 --reload
 celery flower --address=0.0.0.0 --port=5555 --basic_auth=admin:admin123
 ```
 
-### 4. 访问服务
+### 3. 访问服务
 
 - **FastAPI服务**: http://localhost:8000
-- **API文档**: http://localhost:8000/docs
+- **API文档**: http://localhost:8000/docs  # 已注释
 - **Flower监控**: http://localhost:5555 (用户名: admin, 密码: admin123)
 
 ## API使用示例
 
-### 1. 启动测试任务
+### 1. 启动AI基础数据采集任务
 ```bash
-curl -X POST "http://localhost:8000/api/tasks/hello" \
+curl -X POST "http://localhost:8000/api/tasks/craw-aibase"
+```
+
+### 2. 启动翻译任务
+```bash
+curl -X POST "http://localhost:8000/api/tasks/translate" \
   -H "Content-Type: application/json" \
   -d '{
-    "message": "Hello Celery",
-    "delay": 5
+    "text": "Hello World",
+    "target_language": "zh"
   }'
 ```
-
-### 2. 启动船讯网数据采集任务
-```bash
-curl -X POST "http://localhost:8000/api/tasks/craw-chone"
-```
-
 
 ### 3. 获取任务结果
 ```bash
 curl "http://localhost:8000/api/tasks/result?task_id=task-uuid-here"
 ```
 
+### 4. 查看任务状态
+```bash
+curl "http://localhost:8000/api/tasks/status"
+```
+
 ## 任务类型
 
-### 1. 船讯网数据采集任务 (`time_task`)
-- 定时采集船讯网新闻数据
+### 1. AI基础数据采集任务 (`craw_aibase_thread`)
+- 定时采集AI基础数据
 - 支持多页面数据解析
 - 自动数据入库
 - 错误重试和超时控制
+- **队列分配**: `crawler_queue`（爬虫队列）
 
-### 2. 测试任务 (`hello_task`)
-- 简单的测试任务
-- 支持自定义消息和延迟
-- 用于验证Celery任务系统
+### 2. 翻译任务 (`translate_tasks`)
+- 文本翻译处理任务
+- 支持多种语言翻译
+- 批量处理能力
+- **队列分配**: `default`（默认队列）
+
+### 3. 新任务模块 (`new_tasks`)
+- 预留的新任务开发目录
+- 支持快速扩展新功能
+- **队列分配**: 根据任务类型自动分配
+
+## 队列配置
+
+项目配置了多队列任务路由，实现任务分类处理：
+
+### 队列定义
+- **`default`队列**: 处理普通测试任务和系统任务
+- **`crawler_queue`队列**: 专门处理数据采集和爬虫任务
+
+### 任务路由配置
+
+任务路由配置在 `src/settings/celery_config/celery_app.py` 中：
+
+```python
+task_routes = {
+    'src.main.tasks.time_tasks.craw_aibase_thread.time_task': {'queue': 'crawler_queue'},
+    'src.main.tasks.time_tasks.translate_tasks.translate_task': {'queue': 'default'},
+}
+```
+
+### Docker部署队列服务
+
+在 `deploy/docker-compose.yaml` 中配置了独立的队列服务：
+
+```yaml
+# 默认队列Worker服务
+celery-worker:
+  command: celery -A src.settings.celery_config.celery_app worker --loglevel=info -Q default
+
+# 爬虫队列Worker服务  
+celery-crawler-worker:
+  command: celery -A src.settings.celery_config.celery_app worker --loglevel=info -Q crawler_queue
+```
+
+### 队列优势
+- **资源隔离**: 爬虫任务和普通任务分离，避免相互影响
+- **优先级管理**: 可为不同队列设置不同的优先级和资源限制
+- **故障隔离**: 单个队列故障不影响其他队列的正常运行
+- **扩展性**: 可根据需要轻松添加新的专用队列
 
 ## 定时任务配置
 
 框架预配置了以下定时任务：
 
-- **船讯网数据采集**: 每分钟执行船讯网新闻数据采集
+- **AI基础数据采集**: 定时执行AI基础数据采集任务
+- **翻译任务**: 定时执行文本翻译处理
 
 配置位置：`src/settings/celery_config/celery_app.py` 中的 `beat_schedule`
 
 当前启用的定时任务：
 ```python
-'craw-chone-thread-daily': {
-    'task': 'src.main.tasks.craw_chone_thread.time_task',
-    'schedule': crontab(minute='*/1'),  # 每1分钟执行一次
+# AI基础数据采集任务
+'craw-aibase-daily': {
+    'task': 'src.main.tasks.time_tasks.craw_aibase_thread.time_task',
+    'schedule': crontab(minute='*/5'),  # 每5分钟执行一次
+    'args': ()
+},
+
+# 翻译任务
+'translate-daily': {
+    'task': 'src.main.tasks.time_tasks.translate_tasks.translate_task',
+    'schedule': crontab(hour=0, minute=0),  # 每天午夜执行
     'args': ()
 }
 ```
@@ -158,65 +244,60 @@ curl "http://localhost:8000/api/tasks/result?task_id=task-uuid-here"
 
 ### 任务模块结构
 
-项目采用模块化任务结构，所有任务位于 `src/main/tasks/` 目录下：
+项目采用模块化任务结构，支持多类型任务组织：
 
 ```
 src/main/tasks/
-├── __init__.py      # 任务注册文件
+├── __init__.py      # 任务自动注册文件
 ├── api.py           # FastAPI服务
-├── craw_chone_thread.py  # 船讯网数据采集任务
-└── test_tasks.py    # 测试任务
+├── time_tasks/      # 定时任务目录
+│   ├── __init__.py  # 定时任务注册
+│   ├── craw_aibase_thread.py  # AI基础数据采集任务
+│   └── translate_tasks.py     # 翻译任务
+└── new_tasks/       # 新任务开发目录
 ```
 
-### 任务注册机制
+### 自动任务注册机制 ⭐
 
-为确保Celery能正确发现和注册任务，需要在 `src/main/tasks/__init__.py` 文件中显式导入所有任务：
+**重要更新：不再需要手动注册任务！**
 
-```python
-# src/main/tasks/__init__.py
-from .craw_chone_thread import time_task
-from .test_tasks import hello_task, add_task, multiply_task
+框架已实现智能任务自动发现机制，只需将任务文件放置在 `src/main/tasks/time_tasks/` 目录下，系统会自动：
 
-# 导出所有任务，确保Celery自动发现机制正常工作
-__all__ = [
-    'time_task',
-    'hello_task', 
-    'add_task',
-    'multiply_task'
-]
-```
+1. **自动扫描**：扫描 `time_tasks` 目录下的所有Python文件
+2. **自动识别**：识别以 `_task` 或 `_tasks` 结尾的任务函数
+3. **自动注册**：自动注册到Celery任务系统
+4. **自动导出**：自动添加到 `__all__` 列表
 
 ### 添加新的任务
 
-1. **创建新的任务文件**：在 `src/main/tasks/` 目录下创建新的Python文件
+1. **创建新的任务文件**：在 `src/main/tasks/time_tasks/` 或 `src/main/tasks/new_tasks/` 目录下创建新的Python文件
 
 ```python
-# src/main/tasks/custom_task.py
+# src/main/tasks/time_tasks/custom_task.py
 from celery import shared_task
 
 @shared_task
 def custom_collection_task(parameters):
+    """自定义数据采集任务"""
     # 实现自定义采集逻辑
     return {"status": "success", "data": "custom data"}
+
+@shared_task
+def another_custom_task():
+    """另一个自定义任务"""
+    return {"status": "completed"}
 ```
 
-2. **在 `__init__.py` 中注册新任务**：
+2. **系统自动注册**：任务会自动被发现和注册
 
-```python
-# 更新 src/main/tasks/__init__.py
-from .custom_task import custom_collection_task
+3. **验证任务注册**：启动服务后，系统会显示已注册的任务列表
 
-# 添加到 __all__ 列表
-__all__ = [
-    'time_task',
-    'hello_task',
-    'add_task',
-    'multiply_task',
-    'custom_collection_task'  # 新增任务
-]
+```
+✅ 成功导入模块: src.main.tasks.time_tasks.custom_task
+🎯 已注册的任务函数: ['custom_collection_task', 'another_custom_task']
 ```
 
-3. **在API中添加接口**（可选）：
+4. **在API中添加接口**（可选）：
 
 ```python
 # 在 src/main/tasks/api.py 中添加API接口
@@ -233,25 +314,36 @@ async def start_custom_task():
 ```python
 beat_schedule={
     'custom-task': {
-        'task': 'src.main.tasks.custom_task.custom_collection_task',
+        'task': 'src.main.tasks.time_tasks.custom_task.custom_collection_task',
         'schedule': crontab(minute=0, hour=0),  # 每天午夜执行
         'args': ()
     }
 }
 ```
 
-### 验证任务注册
+### 验证任务注册（自动验证）
 
-使用以下脚本验证任务是否正确注册：
+**无需手动验证！** 系统启动时会自动显示已注册的任务：
+
+```
+✅ 成功导入模块: src.main.tasks.time_tasks.test_tasks
+✅ 成功导入模块: src.main.tasks.time_tasks.craw_chone_thread
+🎯 已注册的任务函数: ['hello_task', 'time_task']
+```
+
+### 高级功能：动态导入任意文件夹
+
+框架支持动态导入任意文件夹下的任务：
 
 ```python
-from src.settings.celery_config.celery_app import celery_app
+from src.main.tasks import import_modules_from_folder
 
-# 检查已注册的任务
-print("已注册的任务:")
-for task_name in celery_app.tasks:
-    if 'src.main.tasks' in task_name:
-        print(f"  - {task_name}")
+# 导入自定义文件夹下的任务
+custom_tasks = import_modules_from_folder(
+    folder_path="/path/to/custom/tasks",
+    base_package_path="custom.tasks.package",
+    task_suffixes=('_task', '_job')  # 自定义任务后缀
+)
 ```
 
 ## 部署说明
@@ -263,8 +355,6 @@ for task_name in celery_app.tasks:
 ```bash
 # 构建和启动所有服务
 cd deploy
-docker build -f docker/BaseDockerfile -t port-congestion-api:base .
-
 docker-compose up -d
 
 # 查看服务状态
@@ -274,12 +364,30 @@ docker-compose ps
 docker-compose down
 ```
 
+### Kubernetes部署
+
+项目支持Kubernetes集群部署：
+
+```bash
+# 使用部署脚本
+cd k8s
+./deploy.sh
+
+# 或者手动应用部署配置
+kubectl apply -f deployment.yaml
+
+# 查看部署状态
+kubectl get pods
+kubectl get services
+```
+
 ### 生产环境配置
 
 1. 修改 `deploy/docker-compose.yaml` 中的环境变量
 2. 配置持久化存储（Redis数据）
 3. 设置适当的资源限制
 4. 配置日志收集和监控
+5. 配置Kubernetes Ingress和Service
 
 ## 故障排除
 

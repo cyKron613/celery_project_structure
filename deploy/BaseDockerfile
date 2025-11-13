@@ -66,6 +66,8 @@ RUN pip install openai -i https://mirrors.aliyun.com/pypi/simple/
 RUN pip install fake_useragent==1.5.1 -i https://mirrors.aliyun.com/pypi/simple/
 RUN pip install python-decouple==3.8 -i https://mirrors.aliyun.com/pypi/simple/
 RUN pip install loguru==0.7.2 -i https://mirrors.aliyun.com/pypi/simple/
+RUN pip install pymysql==1.1.2 -i https://mirrors.aliyun.com/pypi/simple/
+
 
 RUN apt-get update && apt-get install -y vim
 

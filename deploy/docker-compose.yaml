@@ -9,12 +9,26 @@ services:
     volumes:
       - redis_data:/data
 
-  # Celery Worker服务
+  # Celery Worker服务（默认队列）
   celery-worker:
     build:
       context: ..
       dockerfile: deploy/Dockerfile
-    command: celery -A src.settings.celery_config.celery_app worker --loglevel=info
+    command: celery -A src.settings.celery_config.celery_app worker -n worker_default --loglevel=info -Q default --concurrency=2
+    volumes:
+      - ../src:/app/src
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    depends_on:
+      - redis
+
+  # Celery Crawler Worker服务（爬虫队列）
+  celery-crawler-worker:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    command: celery -A src.settings.celery_config.celery_app worker -n worker_crawler --loglevel=info -Q crawler_queue --concurrency=12
     volumes:
       - ../src:/app/src
     environment:
@@ -37,22 +51,23 @@ services:
     depends_on:
       - redis
 
-  # FastAPI服务
-  fastapi:
-    build:
-      context: ..
-      dockerfile: deploy/Dockerfile
-    command: uvicorn src.main.tasks.api:app --host 0.0.0.0 --port 8000 --reload
-    ports:
-      - "8000:8000"
-    volumes:
-      - ../src:/app/src
-    environment:
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
-    depends_on:
-      - redis
-      - celery-worker
+  # # FastAPI服务
+  # fastapi:
+  #   build:
+  #     context: ..
+  #     dockerfile: deploy/Dockerfile
+  #   command: uvicorn src.main.tasks.api:app --host 0.0.0.0 --port 8000 --reload
+  #   ports:
+  #     - "8000:8000"
+  #   volumes:
+  #     - ../src:/app/src
+  #   environment:
+  #     - CELERY_BROKER_URL=redis://redis:6379/0
+  #     - CELERY_RESULT_BACKEND=redis://redis:6379/0
+  #   depends_on:
+  #     - redis
+  #     - celery-worker
+  #     - celery-crawler-worker
 
   # Flower监控服务
   flower:
